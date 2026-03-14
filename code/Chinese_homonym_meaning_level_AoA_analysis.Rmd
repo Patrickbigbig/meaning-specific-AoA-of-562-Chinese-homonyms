@@ -1,0 +1,897 @@
+---
+title: "Chinese homonym meaning-level AoA analysis"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Libraries
+```{r libraries, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(readxl)
+library(purrr)
+library(stringr)
+library(tidyverse)
+library(arrow)
+library(rstatix)
+library(emmeans)
+library(ggpubr)
+library(ez)
+library(xtable)
+library(lme4)
+library(lmerTest)
+library(ggstatsplot)
+library(ggsci)
+library(patchwork)
+
+```
+
+## Experiment 1: Data screening and preprocessing (rating RT)
+```{r data screening and preprocessing, message=FALSE, warning=FALSE}
+# set working directory to project folder (update as needed)
+setwd("~/Documents/meaning-specific-AoA-of-562-Chinese-homonyms/data")
+
+# Load data
+df_all <- read_csv("Exp1rating_HPM_data.csv")  
+
+# remove NA rows in Stimulus_RESP and Explist, and convert Stimulus_RESP and Stimulus_RT to numeric
+df_all <- df_all %>%
+  filter(!is.na(Explist)) %>%
+  filter(!is.na(Stimulus_RESP)) %>%
+  mutate(RESP = as.numeric(Stimulus_RESP)) %>%
+  mutate(RT = as.numeric(Stimulus_RT))
+```
+
+### Data screening: remove extremely fast responses (RT < 500 ms)
+```{r inspect_raw_data}
+# report the number and percentage of RT values that is less than 500 ms for each subject
+Less500RT = df_all %>%
+  group_by(Subject) %>%
+  summarize(count_fast_RT = sum(RT < 500, na.rm = TRUE),
+             total_RT = n(),
+             pct_fast_RT = (count_fast_RT / total_RT) * 100,
+             .groups = "drop") %>%
+  arrange(desc(pct_fast_RT)) %>%
+  print()
+
+# define Subject is subj
+subj <- 35
+
+gghistogram(df_all %>% filter(Subject== subj), x="RESP", bins=7)
+
+# report the mean RT for each response for subj
+df_all %>%
+  filter(Subject == subj) %>%
+  group_by(RESP) %>%
+  summarize(mean_RT = mean(RT, na.rm = TRUE), .groups = "drop") %>%
+  print()
+
+# remove subject 35 for further analysis
+df_all <- df_all %>% filter(Subject != 35)
+```
+Subject 35 appears to press button 4 immediately. We remove this subject from the analysis.
+
+### Data screening: remove RT outliers
+
+We compute subject-specific median and median absolute deviation, then flag the reaction time as outliers if
+`abs(logRT - sbj_logRT_median) > 2.5 * sbj_mad(logRT)`, following the guidelines in Leys et al. (2013).
+
+> Leys, C., Ley, C., Klein, O., Bernard, P., & Licata, L. (2013). Detecting outliers: Do not use standard deviation around the mean, use absolute deviation around the median. Journal of Experimental Social Psychology, 49(4), 764–766. https://doi.org/10.1016/j.jesp.2013.03.013
+
+```{r remove_RT_outliers}
+# For each participant, a trial was flagged as an outlier if |logRT - median(logRT)| > 2.5 × MAD(logRT)
+df_all <- df_all %>%
+  group_by(Subject) %>%
+  mutate(
+    logRT = log(RT),
+    sbj_logRT_median = median(logRT, na.rm = TRUE),
+    sbj_mad = mad(logRT, na.rm = TRUE),
+    RT_outlier = abs(logRT - sbj_logRT_median) > 2.5 * sbj_mad
+  ) %>%
+  ungroup()
+
+# reprot the percentage of rows removed as outliers for each subject
+outlier_percentage <- df_all %>%
+  group_by(Subject) %>%
+  summarize(
+    total_rows = n(),
+    outliers_removed = sum(RT_outlier, na.rm = TRUE),
+    outlier_pct = (outliers_removed / total_rows) * 100,
+    .groups = "drop"
+  ) %>%
+  filter(outliers_removed > 0) %>%
+  arrange(desc(outlier_pct))
+print(outlier_percentage)  
+
+
+# report the number and percentage of outliers removed
+total_rows <- nrow(df_all)
+outliers_removed <- sum(df_all$RT_outlier)
+outlier_pct <- (outliers_removed / total_rows) * 100
+message(glue::glue("Total rows: {total_rows}, Outliers removed: {outliers_removed}, Percentage of outliers removed: {round(outlier_pct, 2)}%"))
+
+# report the number and percentage of outliers for each word type
+outlier_type <-df_all %>%
+  group_by(word_type) %>%
+  summarise(
+    n = n(),
+    out_n = sum(RT_outlier == 1, na.rm = TRUE),
+    out_pct = 100*out_n/n
+  )
+print(outlier_type)
+
+# Remove outliers
+df_HPM <- df_all %>%
+  filter(!RT_outlier)
+
+# reprot the number of rows after outlier removal
+print(glue::glue("Rows after removing RT outliers: {nrow(df_HPM)}"))
+```
+
+### statistics on outliers by word type
+Since word type may affect the likelihood of outliers, we fit a mixed-effects logistic regression model to examine the effect of word type on the probability of a trial being an outlier, with random intercepts for subjects and items.
+```{r outlier statistics}
+m_out_ri <- glmer(
+  RT_outlier ~ word_type + (1 | Subject) + (1 | item_id),
+  data = df_all,
+  family = binomial,
+  control = glmerControl(optimizer = "bobyqa")
+)
+summary(m_out_ri)
+emmeans(m_out_ri, ~ word_type, type="response")
+```
+
+## Experiment 1: AoA ratings by word type
+```{r data preparation for modeling}
+# convert word_type, item_id, Subject to factor if not already
+if (!is.factor(df_HPM$word_type)) {
+  df_HPM <- df_HPM %>%
+    mutate(word_type = factor(word_type, levels = c("1","2","3"), labels = c("homonym", "polyseme", "monoseme")))
+}
+if (!is.factor(df_HPM$item_id)) {
+  df_HPM <- df_HPM %>%
+    mutate(item_id = factor(item_id))
+}
+if (!is.factor(df_HPM$Subject)) {
+  df_HPM <- df_HPM %>%
+    mutate(Subject = factor(Subject))
+}
+
+# convert RT, RESP, Explist to numeric if it is not already
+if (!is.numeric(df_HPM$RT)) {
+  df_HPM <- df_HPM %>%
+    mutate(RT = as.numeric(as.character(RT)))
+}
+if (!is.numeric(df_HPM$RESP)) {
+  df_HPM <- df_HPM %>%
+    mutate(RESP = as.numeric(as.character(RESP)))
+}
+if (!is.numeric(df_HPM$Explist)) {
+  df_HPM <- df_HPM %>%
+    mutate(Explist = as.numeric(as.character(Explist)))
+}
+```
+
+
+```{r linear mixed model on RESP, message=FALSE, warning=FALSE}
+# Main LMM for with outlier removal
+m1 <- lmer(RESP ~ word_type + (1 + word_type | Subject) + (1 | item_id),
+           data = df_HPM,
+           control = lmerControl(optimizer = "bobyqa"))
+summary(m1)
+emmeans(m1, pairwise ~ word_type, adjust = "holm")
+
+# Main LMM without outlier removal
+m2 <- lmer(RESP ~ word_type + (1 + word_type | Subject) + (1 | item_id),
+           data = df_all,
+           control = lmerControl(optimizer = "bobyqa"))
+summary(m2)
+emmeans(m2, pairwise ~ word_type, adjust = "holm")
+```
+
+```{r}
+# plot histogram of RESP by word_type
+ggplot(df_HPM, aes(x = RESP, fill = word_type)) +
+  geom_histogram(binwidth = 1, width = 0.7,
+                 position = position_dodge(width = 0.9)) +
+  labs(title = "Distribution of AoA ratings by word type", x = "Response", y = "Count", fill = "Word type") +
+  theme_minimal()
+```
+
+
+## Experiment 1: Rating latency as a function of AoA rating and word type
+Do higher AoA ratings (larger RESP) take longer to produce for a subject, and does that RESP→RT relationship differ by word_type?
+
+```{r linear mixed model on RT, message=FALSE, warning=FALSE}
+# Within-subject effect: on trials where a participant gives a higher-than-their-usual AoA rating, are they slower?
+# Between-subject effect: participants who generally give higher AoA ratings, are they slower overall?
+d2 <- df_HPM %>%
+  mutate(
+    logRT = log(RT),
+    trial_z = as.numeric(scale(Explist)),
+    # within- and between-subject decomposition of RESP
+    RESP_mean_subj = ave(RESP, Subject, FUN = mean),
+    RESP_w = RESP - RESP_mean_subj,
+    RESP_b = as.numeric(scale(RESP_mean_subj))  # optional between-subject term
+  )
+
+m_rt <- lmer(
+  logRT ~ RESP_w * word_type + trial_z + RESP_b +
+    (1 + RESP_w | Subject) +
+    (1 | item_id),
+  data = d2,
+  control = lmerControl(optimizer = "bobyqa")
+)
+
+summary(m_rt)
+
+# Simple slopes: how much logRT changes per 1-point increase in RESP (within-subject),
+# separately by word type
+emtrends(m_rt, ~ word_type, var = "RESP_w")
+pairs(emtrends(m_rt, ~ word_type, var = "RESP_w"), adjust = "holm")
+# extract 95% CIs for the simple slopes
+confint(m_rt, method="Wald")
+```
+
+
+```{r plot RT by RESP and word_type}
+# compute means and then draw bars with labels and adjusted y-axis
+plot_data <- d2 %>%
+  # ensure word_type is labelled for plotting
+  mutate(word_type = factor(word_type,
+                            levels = c("1","2","3","homonym","polyseme","monoseme"),
+                            labels = c("homonym","polyseme","monoseme","homonym","polyseme","monoseme"))) %>%
+  group_by(RESP, word_type) %>%
+  summarize(mean_logRT = mean(logRT, na.rm = TRUE), .groups = "drop")
+
+ggplot(plot_data, aes(x = factor(RESP), y = mean_logRT, fill = word_type)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = round(mean_logRT, 2)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.5, size = 3) +
+  labs(title = "Mean log-transformed RT by AoA rating and word type",
+       x = "RESP", y = "Average logRT", fill = "word_type") +
+  coord_cartesian(ylim = c(6, 8)) +
+  scale_y_continuous(breaks = seq(6, 8, 0.5)) +
+  theme_minimal()
+
+```
+
+
+## Experiment 2: Anchor reproducibility and data quality
+```{r load data and cleaning}
+# read
+df_anchors <- read_csv("anchor_trials_in_both_experiments.csv",
+              col_types = cols(
+                subject = col_integer(),
+                item_id = col_integer(),
+                headword = col_character(),
+                Response = col_double(),
+                RT_ms = col_double(),
+                anchor = col_character(),
+                list = col_character()
+
+              ))
+
+# basic cleaning
+df_anchors <- df_anchors %>%
+  mutate(
+    anchor = factor(anchor, levels = c("exp1", "exp2")),
+    list = factor(list, levels = c("List1", "List2")),
+    item_id = factor(item_id),
+    subject = factor(subject),
+    Response = as.numeric(Response),
+    RT_ms = as.numeric(RT_ms)
+  )
+```
+
+
+```{r Item-level Exp1 vs Exp2 comparison}
+item_sum <- df_anchors %>%
+  group_by(anchor, item_id, headword) %>%
+  summarise(
+    n = n(),
+    mean = mean(Response, na.rm = TRUE),
+    sd = sd(Response, na.rm = TRUE),
+    median = median(Response, na.rm = TRUE),
+    iqr = IQR(Response, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+item_comp <- item_sum %>%
+  select(anchor, item_id, headword, n, mean, median, sd, iqr) %>%
+  pivot_wider(names_from = anchor, values_from = c(n, mean, median, sd, iqr)) %>%
+  mutate(
+    diff_mean = mean_exp2 - mean_exp1,
+    diff_median = median_exp2 - median_exp1,
+    abs_diff_median = abs(diff_median)
+  ) %>%
+  arrange(desc(abs_diff_median))
+
+```
+
+
+```{r plot the anchor meanings}
+item_comp %>%
+  ggplot(aes(x = mean_exp1, y = mean_exp2, label = as.character(item_id))) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  geom_point(size = 2) +
+  geom_text(check_overlap = TRUE, nudge_y = 0.05, size = 3) +
+    coord_fixed(ratio = 0.6) +
+  labs(x = "Exp1 anchor mean rating", y = "Exp2 anchor mean rating",
+       title = "Anchor items: Exp1 vs Exp2 (means)") +
+  theme_minimal(base_size = 12)
+```
+
+
+```{r anchor reproducibility by list}
+# Exp1 norms per item (use median as robust reference)
+exp1_norms <- df_anchors %>%
+  filter(anchor == "exp1") %>%
+  group_by(item_id) %>%
+  summarise(
+    exp1_mean = mean(Response, na.rm = TRUE),
+    exp1_median = median(Response, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Exp2 item means, separated by list
+exp2_item_by_list <- df_anchors %>%
+  filter(anchor == "exp2", !is.na(list)) %>%
+  group_by(list, item_id) %>%
+  summarise(
+    exp2_mean = mean(Response, na.rm = TRUE),
+    exp2_median = median(Response, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  left_join(exp1_norms, by = "item_id") %>%
+  mutate(
+    diff_mean = exp2_mean - exp1_mean,
+    diff_median = exp2_median - exp1_median
+  )
+
+```
+
+
+```{r Participant-level anchor screening as no one excluded}
+# Compute participant anchor deviation score in Exp2
+exp2_dev <- df_anchors %>%
+  filter(anchor == "exp2", !is.na(list)) %>%
+  left_join(exp1_norms, by = "item_id") %>%
+  mutate(abs_dev = abs(Response - exp1_median)) %>%
+  group_by(subject, list) %>%
+  summarise(
+    n_anchors = n(),
+    mean_abs_dev = mean(abs_dev, na.rm = TRUE),
+    max_abs_dev = max(abs_dev, na.rm = TRUE),
+    n_dev_ge3 = sum(abs_dev >= 3, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+# exclude if ≥3 of the 5 anchors were rated 1–3
+exp2_low_anchor_rule <- df_anchors %>%
+  filter(anchor == "exp2", !is.na(list)) %>%
+  group_by(subject, list) %>%
+  summarise(
+    n_anchors = n(),
+    n_low = sum(Response %in% c(1,2,3,4), na.rm = TRUE),
+    fail_low_rule = (n_low >= 3),
+    .groups = "drop"
+  )
+
+```
+
+
+```{r report}
+# the output of the per-list summary
+exp2_item_by_list %>%
+  group_by(list) %>%
+  summarise(
+    mean_abs_diff_median = mean(abs(diff_median), na.rm = TRUE),
+    mean_abs_diff_mean = mean(abs(diff_mean), na.rm = TRUE),
+    cor_means = cor(exp1_mean, exp2_mean, use = "complete.obs"),
+    .groups = "drop"
+  )
+
+# the QC counts: Participant-level anchor deviation score (relative to Exp1 medians)
+exp2_low_anchor_rule %>% count(fail_low_rule)
+summary(exp2_dev$mean_abs_dev) 
+```
+
+
+## Experiment 2: Response distributions and reliability
+### Data screening: remove extremely fast responses (RT < 500 ms)
+We first remove subject 12a who responded extremely fast on many trials (10.7% of total RTs).
+The histogram of 12a's Response is also weird.
+```{r remove the rows whose RT is less than 500ms, message=FALSE, warning=FALSE}
+# load data
+df_raw <- read_csv("Exp2rating_homonym_data.csv")
+
+# report number and percent of rows with RT < 500 per subject, then remove them
+removed_rows_report <- df_raw %>%
+  group_by(file) %>%
+  summarize(
+    total_rows = n(),
+    removed_rows = sum(RT_ms < 500, na.rm = TRUE),
+    removed_pct = (removed_rows / total_rows) * 100,
+    .groups = "drop"
+  ) %>%
+  filter(removed_rows > 0) %>%
+  arrange(desc(removed_rows))
+
+print(removed_rows_report)
+
+# define file is subj
+subj <- "cleaned_12a"
+
+gghistogram(df_raw %>% filter(file== subj), x="Response", bins=7)
+ggscatter(df_raw %>% filter(file== subj), x="item_id", y="RT_ms") + ylim(0, 10000)
+
+
+# remove 12a
+df_raw <- df_raw %>% filter(file != "cleaned_12a")
+
+```
+
+### norms and response distributions
+```{r norms}
+# preprocess the raw data
+df_raw <- df_raw %>%
+  mutate(
+    file = as.character(file),
+    subject = as.character(subject),
+    item_id = as.integer(item_id),
+    Response = suppressWarnings(as.integer(Response)),
+    is_anchor = item_id == 9998
+  ) %>%
+  # Parse list number and part letter from strings like "cleaned_10a"
+  mutate(
+    list_num = suppressWarnings(as.integer(str_match(file, "cleaned_(\\d+)([a-z])")[, 2])),
+    part = str_match(file, "cleaned_(\\d+)([a-z])")[, 3],
+    list = paste0("List", list_num),
+    file_id = paste0(list, part)  # e.g., "List10a"
+  ) %>%
+  # Robust participant ID: unique within each file
+  mutate(
+    subject_uid = paste(file, subject, sep = "::")
+  )
+
+# Meaning-level summary table (database norms)
+meaning_norms <- df_raw %>%
+  filter(!is_anchor) %>%
+  group_by(item_id, headword, meaning) %>%
+  summarise(
+    n = n(),
+    mean = mean(Response),
+    sd = sd(Response),
+    median = median(Response),
+    q1 = quantile(Response, 0.25, names = FALSE, type = 2),
+    q3 = quantile(Response, 0.75, names = FALSE, type = 2),
+    iqr = q3 - q1,
+    se = sd / sqrt(n),
+    ci95_low = mean - 1.96 * se,
+    ci95_high = mean + 1.96 * se,
+    .groups = "drop"
+  )
+
+# Distribution of meaning-level means and SDs (overall)
+mean_summary_overall <- meaning_norms %>%
+  summarise(
+    mean_min = min(mean),
+    mean_p10 = quantile(mean, 0.10, names = FALSE, type = 2),
+    mean_median = median(mean),
+    mean_p90 = quantile(mean, 0.90, names = FALSE, type = 2),
+    mean_max = max(mean)
+  )
+mean_summary_overall
+
+# plot the RESP distribution 
+df_raw %>%
+  ggplot(aes(x = Response)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+  labs(title = "Distribution of Response values", x = "Response", y = "Frequency") +
+  theme_minimal()
+```
+
+
+### split-half reliability
+```{r Split-half reliability of meaning means}
+# Split-half reliability of meaning-level means, pooling ALL files
+# (anchors removed; valid responses only; subject IDs kept unique by file)
+
+set.seed(1)
+
+spearman_brown <- function(r) (2 * r) / (1 + r)
+
+# --- prepare pooled, valid target trials ---
+df_pool <- df_raw %>%
+  mutate(
+    Response = suppressWarnings(as.integer(Response)),
+    item_id  = as.integer(item_id),
+    is_anchor = item_id == 9998,
+    resp_valid = !is.na(Response) & Response %in% 1:7,
+    subject_uid = paste(as.character(file), as.character(subject), sep = "::")
+  ) %>%
+  filter(!is_anchor, resp_valid) %>%
+  select(subject_uid, item_id, Response)
+
+# --- one split-half draw ---
+split_half_once_pooled <- function(dat) {
+  subs <- unique(dat$subject_uid)
+  n_subs <- length(subs)
+  half_n <- floor(n_subs / 2)
+
+  g1 <- sample(subs, half_n)
+  g2 <- setdiff(subs, g1)
+
+  m1 <- dat %>%
+    filter(subject_uid %in% g1) %>%
+    group_by(item_id) %>%
+    summarise(m1 = mean(Response), .groups = "drop")
+
+  m2 <- dat %>%
+    filter(subject_uid %in% g2) %>%
+    group_by(item_id) %>%
+    summarise(m2 = mean(Response), .groups = "drop")
+
+  joined <- inner_join(m1, m2, by = "item_id")
+
+  # Pearson correlation of item means across halves
+  r <- suppressWarnings(cor(joined$m1, joined$m2, use = "complete.obs"))
+
+  tibble(
+    n_subs = n_subs,
+    n_items = nrow(joined),
+    r = r,
+    r_sb = spearman_brown(r)
+  )
+}
+
+# --- run many random splits ---
+n_iter <- 2000
+split_results_pooled <- map_dfr(seq_len(n_iter), ~ split_half_once_pooled(df_pool))
+
+# --- summarise reliability across random splits ---
+split_summary_pooled <- split_results_pooled %>%
+  summarise(
+    iter = n(),
+    n_subs = median(n_subs),
+    n_items = median(n_items),
+    r_median = median(r, na.rm = TRUE),
+    r_sb_median = median(r_sb, na.rm = TRUE),
+    r_sb_ci_low = quantile(r_sb, 0.025, na.rm = TRUE, names = FALSE, type = 2),
+    r_sb_ci_high = quantile(r_sb, 0.975, na.rm = TRUE, names = FALSE, type = 2)
+  )
+
+split_summary_pooled
+
+```
+
+
+## Experiment 2: Rating latency and AoA
+
+```{r RT analysis}
+df_rt2 <- df_raw %>%
+  filter(item_id != 9998) %>%                           # exclude anchors
+  filter(!is.na(Response), Response %in% 1:7) %>%       # valid ratings
+  filter(!is.na(RT_ms), RT_ms > 0) %>%                  # valid RTs
+  mutate(
+    logRT = log(RT_ms),
+    trial_z = as.numeric(scale(stimuli_order))
+  ) %>%
+  group_by(subject) %>%
+  mutate(
+    logRT_med = median(logRT, na.rm = TRUE),
+    logRT_mad = mad(logRT, na.rm = TRUE),               
+    keep_logRT = abs(logRT - logRT_med) <= 2.5 * logRT_mad
+  ) %>%
+  ungroup() %>%
+  filter(keep_logRT)
+
+
+#Create within- and between-participant AoA-rating predictors
+df_rt2 <- df_rt2 %>%
+  group_by(subject) %>%
+  mutate(
+    RESP_mean = mean(Response, na.rm = TRUE),
+    RESP_w = Response - RESP_mean
+  ) %>%
+  ungroup() %>%
+  mutate(
+    RESP_b = as.numeric(scale(RESP_mean, center = TRUE, scale = FALSE))
+  )
+
+# Mixed model (Exp2): does higher AoA rating predict longer latency?
+library(lme4)
+library(lmerTest)
+
+m_exp2 <- lmer(
+  logRT ~ RESP_w + trial_z + RESP_b +
+    (1 + RESP_w | subject) +
+    (1 | item_id),
+  data = df_rt2,
+  REML = TRUE
+)
+
+summary(m_exp2)
+confint(m_exp2, method = "Wald")
+
+# Convert slope to % RT change per 1-point rating
+b <- fixef(m_exp2)["RESP_w"]
+100 * (exp(b) - 1)
+
+```
+
+
+```{r plot}
+# Conditional (marginal) effect of RESP_w on logRT
+m <- m_exp2  # the fitted model
+
+# Build a grid for RESP_w; hold other predictors at 0 (their centered values)
+x_rng <- range(df_rt2$RESP_w, na.rm = TRUE)
+grid <- data.frame(
+  RESP_w  = seq(x_rng[1], x_rng[2], length.out = 200),
+  trial_z = 0,
+  RESP_b  = 0
+)
+
+# Fixed-effects prediction and its SE via model matrix + vcov
+X  <- model.matrix(~ RESP_w + trial_z + RESP_b, data = grid)
+b  <- fixef(m)
+V  <- as.matrix(vcov(m))
+
+grid$fit <- as.numeric(X %*% b)
+grid$se  <- sqrt(diag(X %*% V %*% t(X)))
+grid$lwr <- grid$fit - 1.96 * grid$se
+grid$upr <- grid$fit + 1.96 * grid$se
+
+# add a binned mean of the observed data for intuition (still on logRT)
+p <- ggplot() +
+  geom_ribbon(data = grid, aes(x = RESP_w, ymin = lwr, ymax = upr),
+              alpha = 0.18) +
+  geom_line(data = grid, aes(x = RESP_w, y = fit), linewidth = 1) +
+  stat_summary_bin(
+    data = df_rt2,
+    aes(x = RESP_w, y = logRT),
+    bins = 30,
+    fun = mean,
+    geom = "point",
+    size = 2,
+    alpha = 0.75
+  ) +
+  labs(
+    x = expression(paste("Within-participant AoA deviation (RESP"[w], ")")),
+    y = "Predicted logRT (fixed effects) / observed binned mean",
+    title = "Experiment 2: Within-participant AoA ratings do not predict rating latency"
+  ) +
+  theme_classic()
+
+p
+
+```
+
+
+## Validation analyses
+### Convergent validity with published word-level AoA norms
+```{r test on word-level AoA norms}
+# read the existing AoA norms from excel file
+aoa_norms <- read_excel('Word AoA_Xu, X., et al. (2021).xlsx')
+# rename the column "AoA Mean" to "AoA_word"
+aoa_norms <- aoa_norms %>% rename(AoA_word = `AoA Mean`)
+# select columns we need
+aoa_norms <- aoa_norms %>% select(Word, AoA_word)
+# string hygiene: trim whitespace from Word column
+aoa_norms <- aoa_norms %>%
+  transmute(Word = str_squish(Word),
+            AoA_word)
+
+# read our rating data
+df_rating <- read_csv('Chinese_homonym_meaning_level_norms.csv', show_col_types = FALSE)
+# rename the column "headword" to "Word"
+df_rating <- df_rating %>% rename(Word = headword)
+# calculate AoA summary statistics from the rating column named "mean"
+df_rating <- df_rating %>%
+  mutate(Word = str_squish(Word)) %>%
+  group_by(Word) %>%
+  summarise(
+    AoA_mean = mean(mean, na.rm = TRUE),
+    AoA_min  = min(mean,  na.rm = TRUE),
+    AoA_max  = max(mean,  na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# merge the two dataframes by Word and remove the rows with missing values in either AoA_mean or AoA_word
+df_norms_combined <- inner_join(df_rating, aoa_norms, by = "Word") %>%
+  filter(!is.na(AoA_mean) & !is.na(AoA_word))
+cat(glue::glue("Number of words with both AoA_mean and AoA_word: {nrow(df_norms_combined)}\n Not all homonyms in our ratings have corresponding AoA norms. The correlation will be based on this subset of words.\n"))
+
+# check the correlation between AoA_mean and the existing AoA norms
+correlation_mean1 <- df_norms_combined %>%
+  select(AoA_mean, AoA_word) %>%
+  na.omit() %>%
+  cor.test(~ AoA_mean + AoA_word, data = .)
+# print the correlation result with a message
+cat("\nCorrelation between AoA_mean and AoA_word:\n")
+print(correlation_mean1)
+
+# check the correlation between AoA_min and the existing AoA norms
+correlation_min <- df_norms_combined %>%
+  select(AoA_min, AoA_word) %>%
+  na.omit() %>%
+  cor.test(~ AoA_min + AoA_word, data = .)
+# print the correlation result with a message
+cat("\nCorrelation between AoA_min and AoA_word:\n")
+print(correlation_min)
+
+# check the correlation between AoA_max and the existing AoA norms
+correlation_max <- df_norms_combined %>%
+  select(AoA_max, AoA_word) %>%
+  na.omit() %>%
+  cor.test(~ AoA_max + AoA_word, data = .)
+# print the correlation result with a message
+cat("\nCorrelation between AoA_max and AoA_word:\n")
+print(correlation_max)
+
+```
+
+
+### Predictive validity: meaning-level AoA beyond word-level AoA
+```{r data structure, message=FALSE}
+# load the data from a CSV file
+df_judgment_aoa <- read_csv("Homonym disambiguation judgments_(Xie et al., 2025).csv")
+
+# Coding and preprocessing
+df <- df_judgment_aoa %>%
+  mutate(
+    Subject = factor(Subject),
+    Word = factor(Word),
+    SentencePair_id = factor(SentencePair_id),
+    Sense   = factor(Sense,   levels = c("Same","Different")),
+    Context = factor(Context, levels = c("Same","Different")),
+    POSWord = factor(POSWord, levels = c("Same","Different"))
+  )
+
+# sum-to-zero contrasts (recommended for factorial designs)
+contrasts(df$Sense)   <- contr.sum(2)  # Same = 1; Different = -1
+contrasts(df$Context) <- contr.sum(2)  # Same = 1; Different = -1
+contrasts(df$POSWord) <- contr.sum(2)  # Same = 1; Different = -1
+
+# RT analysis dataset: correct trials only
+df_rt <- df %>%
+  filter(correctness == 1) %>%
+  mutate(
+    logRT = log(Stimulus_RT),
+
+    Trial_z = as.numeric(scale(Trial)),
+    Word_logW_z = as.numeric(scale(Word_logW)),
+
+    AoA_word_z = as.numeric(scale(AoA_word)),
+    AoA_mean_z = as.numeric(scale(AoA_rating_mean)),
+    AoA_diff_z = as.numeric(scale(AoA_rating_diff_abs))
+  )
+```
+We used sum coding for all binary experimental factors (Sense, Context, POSWord) such that main effects reflect averages across the other factors.
+
+```{r modeling}
+# Primary RT models: crossed random intercepts for Subject and SentencePair
+m0 <- lmer(
+  logRT ~ Sense*Context*POSWord + Trial_z + Word_logW_z +
+    (1 | Subject) + (1 | SentencePair_id),   # (1 | Subject) accounts for participant speed
+                                             # (1 | SentencePair_id) accounts for sentence-pair difficulty
+  data = df_rt, REML = FALSE
+)
+
+m_word <- update(m0, . ~ . + AoA_word_z)
+
+# explicitly test nested steps one-by-one
+m_mean_only <- update(m0, . ~ . + AoA_mean_z)
+m_diff_only <- update(m0, . ~ . + AoA_diff_z)
+
+anova(m0, m_mean_only)
+anova(m0, m_diff_only)
+
+m_word_plus_mean <- update(m_word, . ~ . + AoA_mean_z)
+m_word_plus_diff <- update(m_word, . ~ . + AoA_diff_z)
+m_word_plus_both <- update(m_word, . ~ . + AoA_mean_z + AoA_diff_z)
+
+anova(m_word, m_word_plus_mean)
+anova(m_word, m_word_plus_diff)
+anova(m_word, m_word_plus_both)
+
+```
+AoA_mean_z is clearly > 0 (slower RT for later-acquired meanings), AoA_diff_z is not. 
+Adding AoA_word_z does not help, and it is not significant in the full model, 
+so we will keep the simpler meaning-level AoA model without the word-level AoA predictor (good for interpretability and parsimony).
+
+Including (1|SentencePair_id) controls for many nuisance properties that otherwise inflate AoA effects:
+(1)sentence length/complexity
+(2)plausibility/naturalness
+(3)specific lexical neighbors in the sentences
+(4)local cues that make the sense easy/hard
+This makes any AoA effect much easier to defend as meaning/lexicon-related, not sentence-artifact-related.
+
+```{r test interactions}
+# Targeted interactions (optional, but theoretically motivated)
+m_word_plus_mean_int <- update(
+  m_word_plus_mean,
+  . ~ . + AoA_mean_z:Sense
+)
+
+anova(m_word_plus_mean, m_word_plus_mean_int)
+```
+No support for AoA × Sense moderation, so keep the simpler additive AoA model (good).
+
+```{r robustness checks, message=FALSE}
+# Add Word as an additional random intercept for testing robustness to word-level clustering (beyond sentence-pair clustering).
+# Statistically, Word is a higher-level grouping above SentencePair_id (pairs are nested in word). 
+# Adding (1|Word) can capture any word-form–specific variance shared across the 8 pairs for that word beyond what the sentence-pair intercepts capture.
+# However, because each pair already has its own intercept, (1|Word) often adds little and can be redundant (or lead to near-zero variance estimates).
+m_both_wordRE <- lmer(
+  logRT ~ Sense*Context*POSWord + Trial_z + Word_logW_z +
+    AoA_word_z + AoA_mean_z + AoA_diff_z +
+    (1 | Subject) + (1 | SentencePair_id) + (1 | Word),
+  data = df_rt, REML = FALSE
+)
+
+summary(m_both_wordRE)
+
+
+# By-subject random slope for Sense (if it converges cleanly)
+m_both_rs <- lmer(
+  logRT ~ Sense*Context*POSWord + Trial_z + Word_logW_z +
+    AoA_word_z + AoA_mean_z + AoA_diff_z +
+    (1 + Sense | Subject) + (1 | SentencePair_id),
+  data = df_rt, REML = FALSE,
+  control = lmerControl(optimizer = "bobyqa")
+)
+
+summary(m_both_rs)
+```
+The Word intercept variance is non-zero (Var ≈ 0.0059), so there is measurable word-level clustering beyond sentence-pair and subject. 
+Therefore, treat (1|Word) as a robustness model, not necessarily the primary one. 
+The random-slope model (1 + Sense | Subject) fits much better than the random-intercept-only model, 
+so we will re-run the same nested AoA tests there and report those as primary.
+
+
+```{r final model}
+# final fixed-effects AoA specification
+m_final <- lmer(
+  logRT ~ Sense*Context*POSWord + Trial_z + Word_logW_z +
+    AoA_word_z + AoA_mean_z +
+    (1 | Subject) + (1 | SentencePair_id),
+  data = df_rt, REML = FALSE
+)
+
+# document that adding AoA_diff_z does not help
+m_final_plus_diff <- update(m_final, . ~ . + AoA_diff_z)
+anova(m_final, m_final_plus_diff)
+
+# Because random-slope model (1 + Sense | Subject) fit much better earlier, 
+# re-run the same nested AoA tests there and report those as primary
+m_rs0 <- lmer(
+  logRT ~ Sense*Context*POSWord + Trial_z + Word_logW_z +
+    (1 + Sense | Subject) + (1 | SentencePair_id),
+  data = df_rt, REML = FALSE,
+  control = lmerControl(optimizer="bobyqa")
+)
+
+m_rs_word <- update(m_rs0, . ~ . + AoA_word_z)
+m_rs_word_mean <- update(m_rs_word, . ~ . + AoA_mean_z) # Recommended “final” model to take forward
+m_rs_word_mean_diff <- update(m_rs_word_mean, . ~ . + AoA_diff_z)
+
+anova(m_rs0, m_rs_word, m_rs_word_mean, m_rs_word_mean_diff)
+summary(m_rs_word_mean)
+```
+Under the better random-effects structure (1 + Sense | Subject), the story is the same—but stronger and cleaner
+Interpretation: both word-level AoA and meaning-level AoA (mean) explain RT variation; AoA difference between meanings does not.
+
+
