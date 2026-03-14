@@ -69,12 +69,6 @@ The analyses are implemented in a single reproducible workflow:
 4. Install/load required R packages.
 5. Knit the R Markdown document to reproduce tables and figures.
 
-## Reviewer Notes
-
-- The script currently includes a local setwd path in some sections; please update this path to your local environment before execution.
-- One convergent-validity section expects an external file named Word AoA_Xu, X., et al. (2021).xlsx, which is not included in this repository.
-- Reported modeling decisions and quality-control rules are documented inline in the analysis script for auditability.
-
 ## Citation and Use
 
 If you use these data or analyses, please cite the associated manuscript or project output by the repository authors.
