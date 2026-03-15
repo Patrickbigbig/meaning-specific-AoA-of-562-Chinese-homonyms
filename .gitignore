@@ -1,3 +1,7 @@
 # macOS metadata
 .DS_Store
 **/.DS_Store
+
+# generated README render artifacts
+README.html
+README_files/
