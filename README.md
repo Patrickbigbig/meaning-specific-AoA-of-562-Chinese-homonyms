@@ -9,10 +9,6 @@ The analyses are implemented in a single reproducible workflow:
 - [code/Chinese_homonym_meaning_level_AoA_analysis.Rmd](code/Chinese_homonym_meaning_level_AoA_analysis.Rmd): full analysis pipeline
 - [code/Chinese_homonym_meaning_level_AoA_analysis.md](code/Chinese_homonym_meaning_level_AoA_analysis.md): rendered report
 
-Additional project documentation:
-
-- [Supplementary Materials.pdf](Supplementary%20Materials.pdf): additional methodological details
-
 ## Study Components
 
 ### Experiment 1
@@ -53,7 +49,7 @@ Additional project documentation:
 
 ### Supplementary document
 
-- [Supplementary Materials.pdf](Supplementary%20Materials.pdf): 11-page supplementary materials file included at the repository root
+- [Supplementary Materials.pdf](Supplementary%20Materials.pdf): additional methodological details and complete statistical tables
 
 ## Reproducibility
 
@@ -79,7 +75,7 @@ Additional project documentation:
 
 ## Citation and Use
 
-If you use these data or analyses, please cite the associated manuscript or project output by the repository authors. The repository also includes [Supplementary Materials.pdf](Supplementary%20Materials.pdf) for the accompanying supplementary documentation.
+If you use these data or analyses, please cite the associated manuscript or project output by the repository authors. 
 
 ## Contact
 
