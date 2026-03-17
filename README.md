@@ -1,4 +1,4 @@
-# Meaning-Specific Age of Acquisition (AoA) Norms for 562 Chinese Homonyms
+# Meaning-Specific Age of Acquisition (AoA) Estimates for 562 Chinese Homonyms
 
 ## Overview
 
