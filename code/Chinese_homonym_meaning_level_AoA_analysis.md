@@ -570,6 +570,9 @@ ggplot(plot_data, aes(x = factor(RESP), y = mean_logRT, fill = word_type)) +
 ## Experiment 2: Anchor reproducibility and data quality
 
 ``` r
+# set working directory to project folder (update as needed)
+setwd("~/Documents/meaning-specific-AoA-of-562-Chinese-homonyms/data")
+
 # read
 df_anchors <- read_csv("anchor_trials_in_both_experiments.csv",
               col_types = cols(
@@ -731,6 +734,9 @@ We first remove subject 12a who responded extremely fast on many trials
 (10.7% of total RTs). The histogram of 12a’s Response is also weird.
 
 ``` r
+# set working directory to project folder (update as needed)
+setwd("~/Documents/meaning-specific-AoA-of-562-Chinese-homonyms/data")
+
 # load data
 df_raw <- read_csv("Exp2rating_homonym_data.csv")
 
@@ -845,16 +851,20 @@ mean_summary_overall
     ##      <dbl>    <dbl>       <dbl>    <dbl>    <dbl>
     ## 1     2.14     3.51        5.34     6.57        7
 
+### plot the distribution
+
 ``` r
 # plot the RESP distribution 
 df_raw %>%
-  ggplot(aes(x = Response)) +
-  geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+  filter(!is_anchor, Response %in% 1:7) %>%
+  ggplot(aes(x = factor(Response, levels = 1:7))) +
+  geom_bar(width = 0.70, fill = "lightblue", color = "black") +
+  scale_x_discrete(drop = FALSE, expand = expansion(add = 0.60)) +
   labs(title = "Distribution of Response values", x = "Response", y = "Frequency") +
   theme_minimal()
 ```
 
-![](Chinese_homonym_meaning_level_AoA_analysis_files/figure-gfm/norms-1.png)<!-- -->
+![](Chinese_homonym_meaning_level_AoA_analysis_files/figure-gfm/plot%20RESP%20distribution-1.png)<!-- -->
 
 ### split-half reliability
 
@@ -1094,6 +1104,9 @@ p
 ### Convergent validity with published word-level AoA norms
 
 ``` r
+# set working directory to project folder (update as needed)
+setwd("~/Documents/meaning-specific-AoA-of-562-Chinese-homonyms/data")
+
 # read the existing AoA norms from excel file
 aoa_norms <- read_excel('Word AoA_Xu, X., et al. (2021).xlsx')
 # rename the column "AoA Mean" to "AoA_word"
@@ -1219,6 +1232,9 @@ print(correlation_max)
 ### Predictive validity: meaning-level AoA beyond word-level AoA
 
 ``` r
+# set working directory to project folder (update as needed)
+setwd("~/Documents/meaning-specific-AoA-of-562-Chinese-homonyms/data")
+
 # load the data from a CSV file
 df_judgment_aoa <- read_csv("Homonym disambiguation judgments_(Xie et al., 2025).csv")
 
