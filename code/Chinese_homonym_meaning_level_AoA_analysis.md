@@ -211,6 +211,33 @@ type on the probability of a trial being an outlier, with random
 intercepts for subjects and items.
 
 ``` r
+# convert word_type, item_id, Subject to factor if not already
+if (!is.factor(df_all$word_type)) {
+  df_all <- df_all %>%
+    mutate(word_type = factor(word_type, levels = c("1","2","3"), labels = c("homonym", "polyseme", "monoseme")))
+}
+if (!is.factor(df_all$item_id)) {
+  df_all <- df_all %>%
+    mutate(item_id = factor(item_id))
+}
+if (!is.factor(df_all$Subject)) {
+  df_all <- df_all %>%
+    mutate(Subject = factor(Subject))
+}
+# convert RT, RESP, Explist to numeric if it is not already
+if (!is.numeric(df_all$RT)) {
+  df_all <- df_all %>%
+    mutate(RT = as.numeric(as.character(RT)))
+}
+if (!is.numeric(df_all$RESP)) {
+  df_all <- df_all %>%
+    mutate(RESP = as.numeric(as.character(RESP)))
+}
+if (!is.numeric(df_all$Explist)) {
+  df_all <- df_all %>%
+    mutate(Explist = as.numeric(as.character(Explist)))
+}
+
 m_out_ri <- glmer(
   RT_outlier ~ word_type + (1 | Subject) + (1 | item_id),
   data = df_all,
@@ -228,35 +255,39 @@ summary(m_out_ri)
     ## Control: glmerControl(optimizer = "bobyqa")
     ## 
     ##       AIC       BIC    logLik -2*log(L)  df.resid 
-    ##   10926.8   10962.5   -5459.4   10918.8     56499 
+    ##   10928.8   10973.5   -5459.4   10918.8     56498 
     ## 
     ## Scaled residuals: 
     ##     Min      1Q  Median      3Q     Max 
-    ## -0.4992 -0.1609 -0.1310 -0.1001 14.5226 
+    ## -0.4992 -0.1610 -0.1310 -0.1001 14.5293 
     ## 
     ## Random effects:
     ##  Groups  Name        Variance Std.Dev.
-    ##  item_id (Intercept) 0.2322   0.4818  
+    ##  item_id (Intercept) 0.2322   0.4819  
     ##  Subject (Intercept) 0.4551   0.6746  
     ## Number of obs: 56503, groups:  item_id, 999; Subject, 59
     ## 
     ## Fixed effects:
-    ##             Estimate Std. Error z value Pr(>|z|)    
-    ## (Intercept) -3.74174    0.12424 -30.117  < 2e-16 ***
-    ## word_type   -0.22980    0.04187  -5.488 4.06e-08 ***
+    ##                   Estimate Std. Error z value Pr(>|z|)    
+    ## (Intercept)       -3.97234    0.10487 -37.880  < 2e-16 ***
+    ## word_typepolyseme -0.22715    0.07999  -2.840  0.00452 ** 
+    ## word_typemonoseme -0.45992    0.08420  -5.463 4.69e-08 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
     ## Correlation of Fixed Effects:
-    ##           (Intr)
-    ## word_type -0.635
+    ##             (Intr) wrd_typp
+    ## wrd_typplys -0.349         
+    ## wrd_typmnsm -0.331  0.435
 
 ``` r
 emmeans(m_out_ri, ~ word_type, type="response")
 ```
 
-    ##  word_type   prob     SE  df asymp.LCL asymp.UCL
-    ##          2 0.0148 0.0014 Inf    0.0123    0.0178
+    ##  word_type   prob      SE  df asymp.LCL asymp.UCL
+    ##  homonym   0.0185 0.00190 Inf   0.01510    0.0226
+    ##  polyseme  0.0148 0.00156 Inf   0.01201    0.0182
+    ##  monoseme  0.0117 0.00128 Inf   0.00948    0.0146
     ## 
     ## Confidence level used: 0.95 
     ## Intervals are back-transformed from the logit scale
@@ -277,7 +308,6 @@ if (!is.factor(df_HPM$Subject)) {
   df_HPM <- df_HPM %>%
     mutate(Subject = factor(Subject))
 }
-
 # convert RT, RESP, Explist to numeric if it is not already
 if (!is.numeric(df_HPM$RT)) {
   df_HPM <- df_HPM %>%
@@ -371,47 +401,55 @@ summary(m2)
     ##    Data: df_all
     ## Control: lmerControl(optimizer = "bobyqa")
     ## 
-    ## REML criterion at convergence: 164446.2
+    ## REML criterion at convergence: 164392.1
     ## 
     ## Scaled residuals: 
     ##     Min      1Q  Median      3Q     Max 
-    ## -4.6702 -0.6357 -0.0004  0.6440  5.5622 
+    ## -4.6727 -0.6337  0.0012  0.6437  5.5386 
     ## 
     ## Random effects:
-    ##  Groups   Name        Variance Std.Dev. Corr 
-    ##  item_id  (Intercept) 0.84009  0.9166        
-    ##  Subject  (Intercept) 0.50185  0.7084        
-    ##           word_type   0.01131  0.1063   -0.16
-    ##  Residual             0.99522  0.9976        
+    ##  Groups   Name              Variance Std.Dev. Corr       
+    ##  item_id  (Intercept)       0.83247  0.9124              
+    ##  Subject  (Intercept)       0.47670  0.6904              
+    ##           word_typepolyseme 0.01829  0.1352    0.17      
+    ##           word_typemonoseme 0.04526  0.2127   -0.01  0.74
+    ##  Residual                   0.99338  0.9967              
     ## Number of obs: 56503, groups:  item_id, 999; Subject, 59
     ## 
     ## Fixed effects:
-    ##              Estimate Std. Error        df t value Pr(>|t|)    
-    ## (Intercept)   4.89345    0.12050 159.55937  40.611  < 2e-16 ***
-    ## word_type    -0.15975    0.03847 884.38527  -4.152 3.61e-05 ***
+    ##                     Estimate Std. Error         df t value Pr(>|t|)    
+    ## (Intercept)          4.79807    0.10312   98.56964   46.53  < 2e-16 ***
+    ## word_typepolyseme   -0.35259    0.07360 1006.39452   -4.79 1.91e-06 ***
+    ## word_typemonoseme   -0.31966    0.07665  880.60860   -4.17 3.34e-05 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
     ## Correlation of Fixed Effects:
-    ##           (Intr)
-    ## word_type -0.601
+    ##             (Intr) wrd_typp
+    ## wrd_typplys -0.302         
+    ## wrd_typmnsm -0.327  0.516
 
 ``` r
 emmeans(m2, pairwise ~ word_type, adjust = "holm")
 ```
 
     ## $emmeans
-    ##  word_type emmean     SE  df asymp.LCL asymp.UCL
-    ##          2   4.57 0.0964 Inf      4.39      4.76
+    ##  word_type emmean    SE  df asymp.LCL asymp.UCL
+    ##  homonym     4.80 0.103 Inf      4.60      5.00
+    ##  polyseme    4.45 0.107 Inf      4.24      4.66
+    ##  monoseme    4.48 0.106 Inf      4.27      4.69
     ## 
     ## Degrees-of-freedom method: asymptotic 
     ## Confidence level used: 0.95 
     ## 
     ## $contrasts
-    ##  contrast  estimate SE df z.ratio p.value
-    ##  (nothing)   nonEst NA NA      NA      NA
+    ##  contrast            estimate     SE  df z.ratio p.value
+    ##  homonym - polyseme    0.3526 0.0736 Inf   4.790 <0.0001
+    ##  homonym - monoseme    0.3197 0.0767 Inf   4.170 <0.0001
+    ##  polyseme - monoseme  -0.0329 0.0739 Inf  -0.445  0.6560
     ## 
-    ## Degrees-of-freedom method: asymptotic
+    ## Degrees-of-freedom method: asymptotic 
+    ## P value adjustment: holm method for 3 tests
 
 ``` r
 # plot histogram of RESP by word_type
@@ -1043,15 +1081,6 @@ confint(m_exp2, method = "Wald")
     ## RESP_b      -0.12782209  0.10524349
 
 ``` r
-# Convert slope to % RT change per 1-point rating
-b <- fixef(m_exp2)["RESP_w"]
-100 * (exp(b) - 1)
-```
-
-    ##     RESP_w 
-    ## 0.02655254
-
-``` r
 # Conditional (marginal) effect of RESP_w on logRT
 m <- m_exp2  # the fitted model
 
@@ -1632,6 +1661,14 @@ summary(m_rs_word_mean)
     ## Sns1:POSWr1              
     ## Cntx1:POSW1 -0.010       
     ## S1:C1:POSW1  0.006 -0.013
+
+``` r
+# Convert slope to % RT change per 1-point rating
+100 * (exp(fixef(m_rs_word_mean)[c("AoA_word_z", "AoA_mean_z")]) - 1)
+```
+
+    ## AoA_word_z AoA_mean_z 
+    ##   2.586411   3.394108
 
 Under the better random-effects structure (1 + Sense \| Subject), the
 story is the same—but stronger and cleaner Interpretation: both
