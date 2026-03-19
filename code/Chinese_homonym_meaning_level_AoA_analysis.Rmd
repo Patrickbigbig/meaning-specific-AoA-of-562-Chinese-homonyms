@@ -706,7 +706,7 @@ p <- ggplot() +
   labs(
     x = expression(paste("Within-participant AoA deviation (RESP"[w], ")")),
     y = "Predicted logRT (fixed effects) / observed binned mean",
-    title = "Experiment 2: Within-participant AoA ratings do not predict rating latency"
+    title = "Experiment 2: Within-participant AoA deviation and rating latency"
   ) +
   theme_classic()
 
