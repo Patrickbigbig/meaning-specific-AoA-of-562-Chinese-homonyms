@@ -1,4 +1,4 @@
-# Meaning-Specific Age of Acquisition (AoA) Estimates for 562 Chinese Homonyms
+# A database of meaning-specific age-of-acquisition ratings for 562 Mandarin Chinese disyllabic homonyms
 
 ## Overview
 
