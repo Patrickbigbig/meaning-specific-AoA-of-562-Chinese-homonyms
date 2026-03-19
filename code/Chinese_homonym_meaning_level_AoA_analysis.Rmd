@@ -138,6 +138,33 @@ print(glue::glue("Rows after removing RT outliers: {nrow(df_HPM)}"))
 ### statistics on outliers by word type
 Since word type may affect the likelihood of outliers, we fit a mixed-effects logistic regression model to examine the effect of word type on the probability of a trial being an outlier, with random intercepts for subjects and items.
 ```{r outlier statistics}
+# convert word_type, item_id, Subject to factor if not already
+if (!is.factor(df_all$word_type)) {
+  df_all <- df_all %>%
+    mutate(word_type = factor(word_type, levels = c("1","2","3"), labels = c("homonym", "polyseme", "monoseme")))
+}
+if (!is.factor(df_all$item_id)) {
+  df_all <- df_all %>%
+    mutate(item_id = factor(item_id))
+}
+if (!is.factor(df_all$Subject)) {
+  df_all <- df_all %>%
+    mutate(Subject = factor(Subject))
+}
+# convert RT, RESP, Explist to numeric if it is not already
+if (!is.numeric(df_all$RT)) {
+  df_all <- df_all %>%
+    mutate(RT = as.numeric(as.character(RT)))
+}
+if (!is.numeric(df_all$RESP)) {
+  df_all <- df_all %>%
+    mutate(RESP = as.numeric(as.character(RESP)))
+}
+if (!is.numeric(df_all$Explist)) {
+  df_all <- df_all %>%
+    mutate(Explist = as.numeric(as.character(Explist)))
+}
+
 m_out_ri <- glmer(
   RT_outlier ~ word_type + (1 | Subject) + (1 | item_id),
   data = df_all,
@@ -163,7 +190,6 @@ if (!is.factor(df_HPM$Subject)) {
   df_HPM <- df_HPM %>%
     mutate(Subject = factor(Subject))
 }
-
 # convert RT, RESP, Explist to numeric if it is not already
 if (!is.numeric(df_HPM$RT)) {
   df_HPM <- df_HPM %>%
@@ -638,10 +664,6 @@ m_exp2 <- lmer(
 summary(m_exp2)
 confint(m_exp2, method = "Wald")
 
-# Convert slope to % RT change per 1-point rating
-b <- fixef(m_exp2)["RESP_w"]
-100 * (exp(b) - 1)
-
 ```
 
 
@@ -909,6 +931,10 @@ m_rs_word_mean_diff <- update(m_rs_word_mean, . ~ . + AoA_diff_z)
 
 anova(m_rs0, m_rs_word, m_rs_word_mean, m_rs_word_mean_diff)
 summary(m_rs_word_mean)
+
+# Convert slope to % RT change per 1-point rating
+100 * (exp(fixef(m_rs_word_mean)[c("AoA_word_z", "AoA_mean_z")]) - 1)
+
 ```
 Under the better random-effects structure (1 + Sense | Subject), the story is the same—but stronger and cleaner
 Interpretation: both word-level AoA and meaning-level AoA (mean) explain RT variation; AoA difference between meanings does not.
